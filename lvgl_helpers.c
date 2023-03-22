@@ -29,6 +29,8 @@
 
  #define TAG "lvgl_helpers"
 
+#define SPI_HOST_MAX SPI3_HOST
+
 /**********************
  *      TYPEDEFS
  **********************/

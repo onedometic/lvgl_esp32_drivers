@@ -7,8 +7,23 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "driver/gpio.h"
 #include <stddef.h>
+#include "freertos/timers.h"
+//Mycode
+#include "soc/adc_channel.h"
+#include "soc/soc.h"
+#include "soc/soc_memory_layout.h"
+//#include "driver/adc_deprecated.h"
+
+/*
+Touch position accuacy
+The coordinates read from Y(+) and X(-) are analog values.
+The difference between the coordinates read last time and the coordinates read this time is determined, and if it is within this range, it is regarded as a valid coordinate.
+Decreasing this value will make the position more accurate, but less responsive.
+Increasing this value will make the position more inaccurate but more responsive.
+*/
 
 #if CONFIG_LV_TOUCH_CONTROLLER_ADCRAW
 
@@ -20,19 +35,36 @@
 #define SCALE_FACTOR (1 << TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR)
 #define CAL_X_INSET (((GetMaxX() + 1) * (CALIBRATIONINSET >> 1)) / 100)
 #define CAL_Y_INSET (((GetMaxY() + 1) * (CALIBRATIONINSET >> 1)) / 100)
-#define NUMSAMPLES 8
+#define NUMSAMPLES 2
 
+
+#define ADCTESTING 0
+
+
+bool isinverted = true;
+bool stoptimer = false;
+bool landscapeadc = false;
+uint8_t touchcount = 0;
 static void ad_touch_handler(void *arg);
 
-static const esp_timer_create_args_t periodic_timer_args = {
-	.callback = &ad_touch_handler,
-};
-static esp_timer_handle_t periodic_timer;
+//ESP HW TIMER OLD
+// static const esp_timer_create_args_t periodic_timer_args = {
+// 	.callback = &ad_touch_handler,
+// };
+// static esp_timer_handle_t periodic_timer;
+
+
+//SOFTWARE TIMER TEST
+static TimerHandle_t SWTIMER;
+StaticTimer_t xtimmerbuffer;
 
 // Current ADC values for X and Y channels
-int16_t adcX, adcY = 0;
-int16_t temp_x, temp_y, temp_z1, temp_z2;
+int adcX, adcY,adcX2,adcY2 = 0;
 
+int temp_x, temp_y, temp_z1, temp_z2;
+//int16_t
+bool touched = false;
+bool touchreset = false;
 // coefficient values
 int _trA, _trB, _trC, _trD;
 
@@ -118,9 +150,14 @@ void adcraw_init(void)
 	gpio_set_drive_capability(yd, GPIO_DRIVE_CAP_3);
 	gpio_set_drive_capability(xl, GPIO_DRIVE_CAP_3);
 	gpio_set_drive_capability(xr, GPIO_DRIVE_CAP_3);
+	//ESP HARDWARE Timer Begin + Wait	
+	// (esp_timer_create(&periodic_timer_args, &periodic_timer));
+	// ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 5 * 1000));        //5ms (expressed as microseconds)
 	
-	ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
-	ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 5 * 1000));        //5ms (expressed as microseconds)
+	//Timer SW TEST
+	//SWTIMER = xTimerCreate("ADCTEST", pdMS_TO_TICKS(10),true,1, ad_touch_handler); //Timer has ~ 45ms offset
+	SWTIMER = xTimerCreate("ADCTEST", pdMS_TO_TICKS(20),true,0, ad_touch_handler); //,&xtimmerbuffer
+	xTimerStart(SWTIMER,0);
 
 	/*Load calibration data*/
 	xRawTouch[0] = TOUCHCAL_ULX;
@@ -141,10 +178,13 @@ static void setup_axis(gpio_num_t plus, gpio_num_t minus, gpio_num_t measure, gp
 	// - Float "ignore" and "measure"
 	gpio_pad_select_gpio(ignore);
 	gpio_set_direction(ignore, GPIO_MODE_DISABLE);
-	gpio_set_pull_mode(ignore, GPIO_FLOATING);
+	gpio_set_pull_mode(ignore, GPIO_PULLDOWN_ONLY);
+	//GPIO_PULLUP_ONLY   OK= GPIO_PULLDOWN_ONLY
+	//gpio_set_pull_mode(ignore, GPIO_FLOATING);
 	gpio_pad_select_gpio(measure);
 	gpio_set_direction(measure, GPIO_MODE_DISABLE);
-	gpio_set_pull_mode(measure, GPIO_FLOATING);
+	//gpio_set_pull_mode(measure, GPIO_FLOATING);
+	gpio_set_pull_mode(measure, GPIO_PULLDOWN_ONLY);
 	// - Set "plus" to 1, "minus" to 0
 	gpio_config(&(gpio_config_t) {
 		.mode = GPIO_MODE_OUTPUT,
@@ -162,7 +202,25 @@ static void setup_adc(gpio_num_t measure)
 	adc1_config_width(ADC_WIDTH_BIT_10);
 	adc1_config_channel_atten(channel, ADC_ATTEN_DB_11);
 }
-    
+static void setup_adc_y(gpio_num_t measure)
+{
+	// Init ADC
+	adc1_channel_t channel = 5;
+	adc1_config_width(ADC_WIDTH_BIT_10);
+	adc_gpio_init(ADC_UNIT_1, channel);
+	adc1_config_channel_atten(channel, ADC_ATTEN_DB_11);
+
+
+}
+static void setup_adc_x(gpio_num_t measure)
+{
+	// Init ADC
+	adc1_channel_t channel = 4;
+	adc1_config_width(ADC_WIDTH_BIT_10);
+	adc_gpio_init(ADC_UNIT_1, channel);
+	adc1_config_channel_atten(channel, ADC_ATTEN_DB_11);
+}
+   
 static void insert_sort(int16_t array[], uint8_t size) {
 	uint8_t j;
 	int16_t save;
@@ -180,6 +238,12 @@ static void ad_touch_handler(void *arg)
 	(void) arg;
 	uint8_t i;
 	int16_t samples[NUMSAMPLES];
+	//esp_err_t r;
+	//int raw;
+	//vTaskDelay(0.75* portTICK_PERIOD_MS); 
+	//vTaskDelay(0.20* portTICK_PERIOD_MS); 
+	//vTaskDelay(4* portTICK_PERIOD_MS); 
+	//vTaskDelay(0.5* portTICK_PERIOD_MS); 
 
 	switch (state) {
 	case IDLE:
@@ -188,7 +252,7 @@ static void ad_touch_handler(void *arg)
 
 	case SET_X :
 		setup_axis(yd, yu, xr, xl);
-		setup_adc(xr);
+		setup_adc_x(xr);
 		state = READ_X;
 		break;
 
@@ -200,7 +264,7 @@ static void ad_touch_handler(void *arg)
 		
 	case SET_Y :
 		setup_axis(xl, xr, yd, yu);
-		setup_adc(yd);
+		setup_adc_y(yd);
 		state = READ_Y;
 		break;
 
@@ -212,7 +276,7 @@ static void ad_touch_handler(void *arg)
 		
 	case SET_Z1 :
 		setup_axis(yu, xl, yd, xr);
-		setup_adc(yd);
+		setup_adc_y(yd);
 		state = READ_Z1;
 		break;
 
@@ -221,7 +285,7 @@ static void ad_touch_handler(void *arg)
 
 	case SET_Z2 :
 		setup_axis(yu, xl, xr, yd);
-		setup_adc(yd);
+		setup_adc_y(yd);
 		state = READ_Z2;
 		break;
 
@@ -230,19 +294,38 @@ static void ad_touch_handler(void *arg)
 		
 		if (temp_z1 < TOUCHSCREEN_RESISTIVE_PRESS_THRESHOLD) {
 #if CONFIG_LV_TOUCH_XY_SWAP
-			adcX = temp_y; 
-			adcY = temp_x; 
+			
+			adcY = adcY2 = temp_x; 
+			adcX = adcX2 = temp_y; 
+			touchreset = touched = true;
+			touchcount++;
+			// printf("Touched x: %d   y: %d \n", adcX, adcY);
+#if ADCTESTING
+			printf("Touched x: %d   y: %d \n", adcX, adcY);
+			printf("Z1: %d  THRESHOLD: %d \n", temp_z1, TOUCHSCREEN_RESISTIVE_PRESS_THRESHOLD );
+#endif
+
 #else
-			adcX = temp_x; 
-			adcY = temp_y; 
+			adcY = adcY2 = temp_y; 
+			adcX = adcX2 = temp_x; 
+			touchreset =touched = true;
+#if ADCTESTING
+			printf("Touched x: %d   y: %d \n", adcX, adcY);
+#endif
 #endif
 		}
 		else {
-			adcX = -1; 
-			adcY = -1; 
+#if ADCTESTING
+			printf("Not touched, z1: %d  THRESHOLD: %d \n", temp_z1, TOUCHSCREEN_RESISTIVE_PRESS_THRESHOLD );
+#endif			
+			touched = false;
+			adcX = adcX2 = -1; 
+			adcY = adcY2 = -1; 
 		}
 		state = SET_X;
-		//printf("x: %d   y: %d   z: %d\n", adcX, adcY, temp_z1 - temp_z2);
+#if ADCTESTING
+		printf("Final Values, x: %d   y: %d   z: %d\n", adcX, adcY, temp_z1 - temp_z2);
+#endif
 		break;
 	}
 
@@ -251,43 +334,90 @@ static void ad_touch_handler(void *arg)
 
 static int16_t TouchGetRawX(void)
 {
-	int16_t x = adcX;
+	int16_t x = adcX2;
+	// if(x == adcY){
+	// 	printf("x: %d == y %d\n",adcX,adcY);
+	// 	x = adcX;
+	// }
+#if ADCTESTING
+    printf("RawX b4 invert: %d adcX2 %d\n",x, adcX);
+#endif	
+// #if CONFIG_LV_TOUCH_INVERT_X
+// 	x = 1023 - x;
+// #endif
+	if( isinverted == true){
+		x = 1023 - x;
+	}
 
-#if CONFIG_LV_TOUCH_INVERT_X
-	x = 1023 - x;
-#endif
 	return x;
 }
 
 static int16_t TouchGetX(void)
 {
 	int16_t result = TouchGetRawX();
+	if(touched == false){
+		result = -1;
+		return (result);
+	}
+#if ADCTESTING
+	printf("X result before scale: %d ,Final ", result);
+#endif
 
 	if (result > 0) {
-		result = (int16_t)((((int32_t)_trC * result) + _trD) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+#if CONFIG_LV_TOUCH_XY_SWAP
+
+			result = (int16_t)((((int32_t)_trA * result) + (int32_t)_trB) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+			//result = (int16_t)((((int32_t)_trC * result) + _trD) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+#else
+			result = (int16_t)((((int32_t)_trC * result) + _trD) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+
+#endif
+		//result = (int16_t)((((int32_t)_trC * result) + _trD) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
 	}
-	printf("x: %d\n", result);
+#if ADCTESTING
+	printf("got x: %d\n", result);
+#endif
 	return (result);
 }
 
 static int16_t TouchGetRawY(void)
 {
-	int16_t y = adcY;
-
-#if CONFIG_LV_TOUCH_INVERT_Y
-	y = 1023 - y;
+	int16_t y = adcY2;
+#if ADCTESTING
+	printf("TouchGetRawY before invert: %d\n", y);
 #endif
+// #if CONFIG_LV_TOUCH_INVERT_Y
+// 	y = 1023 - y;
+// #endif
+
+	if( isinverted == true){
+		y = 1023 - y;
+	}
 	return y;
 }
 
 static int16_t TouchGetY(void)
 {
 	int16_t result = TouchGetRawY();
-
-	if (result > 0) {
-		result = (int16_t)((((int32_t)_trA * result) + (int32_t)_trB) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+	if(touched == false){
+		result = -1;
+		return (result);
 	}
-	printf("y: %d\n", result);
+#if ADCTESTING
+	printf("Y result before scale: %d, Final ", result);
+#endif
+	if (result > 0) {
+#if CONFIG_LV_TOUCH_XY_SWAP
+		result = (int16_t)((((int32_t)_trC * result) + _trD) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+		//result = (int16_t)((((int32_t)_trA * result) + (int32_t)_trB) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+#else
+		result = (int16_t)((((int32_t)_trA * result) + (int32_t)_trB) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+#endif
+		//result = (int16_t)((((int32_t)_trA * result) + (int32_t)_trB) >> TOUCHSCREEN_RESISTIVE_CALIBRATION_SCALE_FACTOR);
+	}
+#if ADCTESTING
+	printf("get y: %d\n", result);
+#endif
 	return (result);
 }
 
@@ -303,22 +433,75 @@ bool adcraw_read(lv_indev_drv_t * drv, lv_indev_data_t * data)
 
 	int16_t x, y;
 
-	x = TouchGetX();
-	y = TouchGetY();
+	// x = TouchGetX();
+	// y = TouchGetY();
 
-	if ((x > 0) && (y > 0)) {
+	x = TouchGetX();
+	//wierd offset...?
+	//y = TouchGetY();
+	if(landscapeadc){
+		y = TouchGetY();  
+	}else{
+		y = TouchGetY()-30;  
+	}
+	
+	if(y < 0){
+		y = 0;
+	} 
+	if(x < 0){
+		x = 0;
+	}
+
+	// if ((x > 0) && (y > 0)) {
+	// 	data->point.x = x;
+	// 	data->point.y = y;
+	// 	last_x = data->point.x;
+	// 	last_y = data->point.y;
+	// 	data->state = LV_INDEV_STATE_PR;
+	// }
+	// else {
+	// 	data->point.x = last_x;
+	// 	data->point.y = last_y;
+	// 	data->state = LV_INDEV_STATE_REL;
+	// }
+
+	if ((x > 0) && (y > 0) && touched == true) {
 		data->point.x = x;
 		data->point.y = y;
-		last_x = data->point.x;
-		last_y = data->point.y;
+		last_y = data->point.x;
+		last_x = data->point.y;
 		data->state = LV_INDEV_STATE_PR;
 	}
-	else {
+	else if (touched == true){
 		data->point.x = last_x;
 		data->point.y = last_y;
 		data->state = LV_INDEV_STATE_REL;
 	}
-
+	else {
+		data->point.x = -1;
+		data->point.y = -1;
+		data->state = LV_INDEV_STATE_REL;
+	}
 	return false;
 }
+
+
+
+void timercontrol(bool flag){
+	if(flag == true ){
+		printf("ADC timer stopped");
+		// esp_timer_stop(periodic_timer);
+		// esp_timer_delete(periodic_timer);
+		xTimerStop(SWTIMER,0);
+	}else{
+		printf("ADC timer started");
+		xTimerStart(SWTIMER,0);
+		//(esp_timer_create(&periodic_timer_args, &periodic_timer));
+		// (esp_timer_start_periodic(periodic_timer, 5 * 1000));     
+		//ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 5 * 100000)); 
+		//ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 5 * 1000));        //5ms (expressed as microseconds)
+		 
+	}
+}
+
 #endif //CONFIG_LV_TOUCH_CONTROLLER_ADCRAW

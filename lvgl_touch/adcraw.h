@@ -23,6 +23,13 @@ extern "C" {
 #define LV_HOR_RES_MAX 240
 #define LV_VER_RES_MAX 320
 
+bool stoptimer;
+void timercontrol(bool flag);
+bool landscapeadc;
+bool touched;
+bool touchreset;
+uint8_t touchcount;
+
 #define TOUCHSCREEN_RESISTIVE_PIN_YU CONFIG_LV_TOUCHSCREEN_RESISTIVE_PIN_YU // Y+ any gpio
 #define TOUCHSCREEN_RESISTIVE_PIN_YD CONFIG_LV_TOUCHSCREEN_RESISTIVE_PIN_YD // Y- also ADC
 #define TOUCHSCREEN_RESISTIVE_PIN_XL CONFIG_LV_TOUCHSCREEN_RESISTIVE_PIN_XL // X- any gpio
@@ -39,6 +46,8 @@ extern "C" {
 #define TOUCHCAL_LRY 928 // Lower Right Y
 
 #define TOUCHSCREEN_RESISTIVE_PRESS_THRESHOLD 1023
+
+extern bool isinverted;
 	
 /*GetMaxX Macro*/
 #if CONFIG_LV_DISPLAY_ORIENTATION_LANDSCAPE
@@ -72,6 +81,10 @@ typedef enum {
 	READ_Z1,
 	READ_Z2
 } TOUCH_STATES; 
+
+int adcX, adcY,adcX2,adcY2;
+
+
 
 void adcraw_init(void);
 bool adcraw_read(lv_indev_drv_t * drv, lv_indev_data_t * data);

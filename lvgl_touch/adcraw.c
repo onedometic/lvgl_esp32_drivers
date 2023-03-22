@@ -205,9 +205,9 @@ static void setup_adc(gpio_num_t measure)
 static void setup_adc_y(gpio_num_t measure)
 {
 	// Init ADC
-	adc1_channel_t channel = 5;
+	adc1_channel_t channel = gpio_to_adc[measure];
 	adc1_config_width(ADC_WIDTH_BIT_10);
-	adc_gpio_init(ADC_UNIT_1, channel);
+	//adc_gpio_init(ADC_UNIT_1, channel);
 	adc1_config_channel_atten(channel, ADC_ATTEN_DB_11);
 
 
@@ -215,9 +215,9 @@ static void setup_adc_y(gpio_num_t measure)
 static void setup_adc_x(gpio_num_t measure)
 {
 	// Init ADC
-	adc1_channel_t channel = 4;
+	adc1_channel_t channel = gpio_to_adc[measure];
 	adc1_config_width(ADC_WIDTH_BIT_10);
-	adc_gpio_init(ADC_UNIT_1, channel);
+	//adc_gpio_init(ADC_UNIT_1, channel);
 	adc1_config_channel_atten(channel, ADC_ATTEN_DB_11);
 }
    

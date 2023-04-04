@@ -12,11 +12,17 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_lcd_backlight.h"
+#include "driver/ledc.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+#include "soc/ledc_periph.h" // to invert LEDC output on IDF version < v4.3
 
 /*********************
  *      DEFINES
  *********************/
  #define TAG "ILI9341"
+uint8_t rotationvalue = 0;
 
 /**********************
  *      TYPEDEFS
@@ -41,6 +47,92 @@ static void ili9341_send_color(void * data, uint16_t length);
 /**********************
  *  STATIC VARIABLES
  **********************/
+disp_backlight_config_t PWM_LGVL;
+disp_backlight_h PWM_LGVL_handle;
+
+typedef struct {
+    bool pwm_control; // true: LEDC is used, false: GPIO is used
+    int index;        // Either GPIO or LEDC channel
+} disp_backlight_t;
+
+
+disp_backlight_h disp_backlight_new(const disp_backlight_config_t *config)
+{
+    // Check input parameters
+    if (config == NULL)
+        return NULL;
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(config->gpio_num)) {
+        ESP_LOGI(TAG, "Invalid GPIO number");
+        return NULL;
+    }
+    disp_backlight_t *bckl_dev = calloc(1, sizeof(disp_backlight_t));
+    if (bckl_dev == NULL){
+        ESP_LOGI(TAG, "Not enough memory");
+        return NULL;
+    }
+    if (config->pwm_control){
+        // Configure LED (Backlight) pin as PWM for Brightness control.
+		ESP_LOGI(TAG, "PWM for Brightness control.");
+        bckl_dev->pwm_control = true;
+        bckl_dev->index = config->channel_idx;
+        const ledc_channel_config_t LCD_backlight_channel = {
+            .gpio_num = 27,
+            .speed_mode = LEDC_HIGH_SPEED_MODE,
+            .channel = 0,
+            .intr_type = LEDC_INTR_DISABLE,
+            .timer_sel = LEDC_TIMER_0, //0
+            .duty = 0,
+            .hpoint = 0
+        };
+        const ledc_timer_config_t LCD_backlight_timer = {
+            .speed_mode = LEDC_HIGH_SPEED_MODE,
+            .bit_num = LEDC_TIMER_12_BIT, //LEDC_TIMER_10_BIT,
+			.duty_resolution  = LEDC_TIMER_8_BIT,//LEDC_TIMER_13_BIT,LEDC_TIMER_13_BIT
+            .timer_num = LEDC_TIMER_0,
+            .freq_hz = 5000,
+            .clk_cfg = LEDC_USE_APB_CLK
+		};
+
+        ESP_ERROR_CHECK(ledc_timer_config(&LCD_backlight_timer));
+        ESP_ERROR_CHECK(ledc_channel_config(&LCD_backlight_channel));
+		ESP_ERROR_CHECK(ledc_set_duty(LEDC_HIGH_SPEED_MODE, 0,255 )); // 8190 Set duty to 50%. ((2 ** 13) - 1) * 50% = 4095   8190 => 100%
+		ESP_ERROR_CHECK(ledc_update_duty(LEDC_HIGH_SPEED_MODE, 0));
+       // gpio_matrix_out(config->gpio_num, ledc_periph_signal[LEDC_LOW_SPEED_MODE].sig_out0_idx + config->channel_idx, config->output_invert, 0);
+    }
+    else
+    {
+        // Configure GPIO for output
+		ESP_LOGI(TAG, "GPIO for output");
+        bckl_dev->index = config->gpio_num;
+        gpio_pad_select_gpio(config->gpio_num);
+        ESP_ERROR_CHECK(gpio_set_direction(config->gpio_num, GPIO_MODE_OUTPUT));
+        gpio_matrix_out(config->gpio_num, SIG_GPIO_OUT_IDX, config->output_invert, false);
+    }
+
+    return (disp_backlight_h)bckl_dev;
+}
+
+void setDisplay(uint32_t BLvalue){
+	//uint32_t blconvert = BLvalue;
+	uint32_t dutyraw = 255;
+
+	if(BLvalue > 100){
+		dutyraw = dutyraw;
+	}else{
+		dutyraw = (float)(dutyraw*BLvalue/100);
+	}
+	// #if !RELEASE
+	//   printf("duty raw is %d, %d \n",dutyraw, BLvalue);
+	// #endif
+	ESP_ERROR_CHECK(ledc_set_duty(LEDC_HIGH_SPEED_MODE, 0, dutyraw));
+	ESP_ERROR_CHECK(ledc_update_duty(LEDC_HIGH_SPEED_MODE, 0));
+	
+	//printf("before FREQ");
+	//edc_set_freq(LEDC_HIGH_SPEED_MODE,PWM_LGVL.timer_idx,20000);
+	// printf("\n current freq %d \n",ledc_get_freq(LEDC_HIGH_SPEED_MODE,LEDC_TIMER_0));
+	//ESP_LOGI(TAG, "NEW DUTY VALUE IS %f BL VALUE GOT WAS %d other value.. %f",dutyvalue,BLvalue, dutyraw);
+}
+
 
 /**********************
  *      MACROS
@@ -108,7 +200,10 @@ void ili9341_init(void)
 		cmd++;
 	}
 
-    ili9341_set_orientation(CONFIG_LV_DISPLAY_ORIENTATION);
+	ili9341_enable_backlight(true);
+	ili9341_set_orientation(rotationvalue);
+       // ili9341_set_orientation(CONFIG_LV_DISPLAY_ORIENTATION);
+		// 0 for portrait, 1 for landscape
 
 #if ILI9341_INVERT_COLORS == 1
 	ili9341_send_cmd(0x21);
@@ -142,6 +237,24 @@ void ili9341_flush(lv_disp_drv_t * drv, const lv_area_t * area, lv_color_t * col
 	ili9341_send_cmd(0x2C);
 	uint32_t size = lv_area_get_width(area) * lv_area_get_height(area);
 	ili9341_send_color((void*)color_map, size * 2);
+}
+
+void ili9341_enable_backlight(bool backlight)
+{
+#if ILI9341_ENABLE_BACKLIGHT_CONTROL
+    ESP_LOGI(TAG, "%s backlight.", backlight ? "Enabling" : "Disabling");
+    //uint32_t tmp = 0;  //OG CODE
+
+	//disp_backlight_set(PWM_LGVL_handle, 25);
+
+#if (ILI9341_BCKL_ACTIVE_LVL==1)
+    //tmp = backlight ? 1 : 0;  //OG CODE
+#else
+    tmp = backlight ? 0 : 1;
+#endif
+
+    //gpio_set_level(ILI9341_BCKL, tmp); //this sets GPIO to high
+#endif
 }
 
 void ili9341_sleep_in()
@@ -199,7 +312,7 @@ static void ili9341_set_orientation(uint8_t orientation)
 #elif defined (CONFIG_LV_PREDEFINED_DISPLAY_M5CORE2)
 	uint8_t data[] = {0x08, 0x88, 0x28, 0xE8};
 #elif defined (CONFIG_LV_PREDEFINED_DISPLAY_WROVER4)
-    uint8_t data[] = {0x6C, 0xEC, 0xCC, 0x4C};
+    uint8_t data[] = {0x4C, 0x88, 0x28, 0xE8};
 #elif defined (CONFIG_LV_PREDEFINED_DISPLAY_NONE)
     uint8_t data[] = {0x48, 0x88, 0x28, 0xE8};
 #endif

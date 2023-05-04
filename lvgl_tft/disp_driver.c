@@ -7,6 +7,8 @@
 #include "esp_lcd_backlight.h"
 #include "sdkconfig.h"
 
+// Display backlight handle
+static disp_backlight_h disp_backlight_handle = NULL;
 void *disp_driver_init(void)
 {
 #if defined CONFIG_LV_TFT_DISPLAY_CONTROLLER_ILI9341
@@ -67,6 +69,7 @@ void *disp_driver_init(void)
     };
     disp_backlight_h bckl_handle = disp_backlight_new(&bckl_config);
     disp_backlight_set(bckl_handle, 100);
+    disp_backlight_handle = bckl_handle;
     return bckl_handle;
 #else
     return NULL;
@@ -147,4 +150,9 @@ void disp_driver_set_px(lv_disp_drv_t * disp_drv, uint8_t * buf, lv_coord_t buf_
 #elif defined CONFIG_LV_TFT_DISPLAY_CONTROLLER_PCD8544
    pcd8544_set_px_cb(disp_drv, buf, buf_w, x, y, color, opa);
 #endif
+}
+
+void setDisplay(uint32_t BLvalue)
+{
+    disp_backlight_set(disp_backlight_handle, BLvalue);
 }

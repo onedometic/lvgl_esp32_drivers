@@ -58,6 +58,13 @@ static SemaphoreHandle_t* I2C_FN(_mutex) = &I2C_FN(_local_mutex)[0];
 
 static const uint8_t ACK_CHECK_EN = 1;
 
+#ifndef I2C_NUM_0
+	#define I2C_NUM_0 	(0)
+#endif
+#ifndef portTICK_RATE_MS
+	#define portTICK_RATE_MS portTICK_PERIOD_MS
+#endif
+
 #if defined (I2C_NUM_0) && defined (CONFIG_I2C_MANAGER_0_ENABLED)
 	#define I2C_ZERO 					I2C_NUM_0
 	#if defined (CONFIG_I2C_MANAGER_0_PULLUPS)
@@ -135,7 +142,7 @@ esp_err_t I2C_FN(_init)(i2c_port_t port) {
 		#ifdef HAS_CLK_FLAGS
 			conf.clk_flags = 0;
 		#endif
-
+	
 		#if defined (I2C_ZERO)
 			if (port == I2C_NUM_0) {
 				conf.sda_io_num = CONFIG_I2C_MANAGER_0_SDA;
@@ -155,6 +162,9 @@ esp_err_t I2C_FN(_init)(i2c_port_t port) {
 				conf.master.clk_speed = CONFIG_I2C_MANAGER_1_FREQ_HZ;
 			}
 		#endif
+
+		ESP_LOGI(TAG, "Initializing I2C port %d (SDA: %d, SCL: %d, speed: %d Hz.)",
+				 port, conf.sda_io_num, conf.scl_io_num, (int)conf.master.clk_speed);
 
 		conf.mode = I2C_MODE_MASTER;
 

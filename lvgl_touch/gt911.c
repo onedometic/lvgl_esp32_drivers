@@ -140,13 +140,22 @@ void gt911_init(uint8_t dev_addr) {
 
         ESP_LOGI(TAG, "Checking for GT911 Touch Controller");
         
-        if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1) != ESP_OK)) {
+        /// it should try for a while when to start reading PID, return only after miximum retry reached.
+        uint8_t retry = 0;
+        while (true) {
+            if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1)) != ESP_OK) {
             // ESP_LOGE(TAG, "Error reading from device: %s",
             //             esp_err_to_name(ret));    // Only show error the first time
-            ESP_LOGI(TAG, "Error reading from device: %s",esp_err_to_name(ret));
+            ESP_LOGI(TAG, "%d Error reading from device: %s", retry,esp_err_to_name(ret));
             // gt911_reset_CTP();
-            return;
+            if(retry >= 10)
+                return;
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            retry++;
+        }else{
+            break;
         }
+    }
 
         // Read 4 bytes for Product ID in ASCII
         for (int i = 0; i < GT911_PRODUCT_ID_LEN; i++) {
@@ -253,6 +262,10 @@ bool gt911_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
     data->point.x = last_x;
     data->point.y = last_y;
     data->state = LV_INDEV_STATE_PR;
-    ESP_LOGI(TAG, "X=%u Y=%u", data->point.x, data->point.y);
+//   adcX = last_x;
+//   adcY = last_y;
+  void increase_touch_count();
+  increase_touch_count();
+  /// ESP_LOGI(TAG, "X=%u Y=%u", data->point.x, data->point.y);
     return false;
 }

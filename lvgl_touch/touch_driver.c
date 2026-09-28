@@ -5,6 +5,8 @@
 #include "touch_driver.h"
 #include "tp_spi.h"
 
+#include <esp_log.h>
+
 uint8_t touchtype = RESISTIVE_TOUCH;
 void touch_driver_init(void)
 {
@@ -21,12 +23,12 @@ void touch_driver_init(void)
     // }    
 
     //Approach two, if GT911 is not initialized, use ADC RAW
-    printf("Inititializing Capacitive touch screen...\n");
+    ESP_LOGI("touch_driver", "Inititializing Capacitive touch screen...\n");
     gt911_init(GT911_I2C_SLAVE_ADDR);
-    printf("Capacitive Value %s - %d",gt911_status.inited ? "Initialized" : "Failed" , gt911_status.inited);
+    ESP_LOGI("touch_driver", "Capacitive Value %s - %d",gt911_status.inited ? "Initialized" : "Failed" , gt911_status.inited);
 
     if(gt911_status.inited  == false){
-        printf("Using ADV_RAW touch\n");
+        ESP_LOGI("touch_driver", "Using ADV_RAW touch, skip now, will init later...\n");
         adcraw_init();
     }
 
@@ -49,6 +51,11 @@ void touch_driver_init(void)
 // #endif
 }
 
+#define TEST_SUPPORT_TOUCH_ENABLE (1)
+#if TEST_SUPPORT_TOUCH_ENABLE
+static bool touch_enabled = true;
+#endif
+
 #if LVGL_VERSION_MAJOR >= 8
 void touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #else
@@ -56,7 +63,13 @@ bool touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #endif
 {
     bool res = false;
-    if(touchtype == RESISTIVE_TOUCH){
+
+#if TEST_SUPPORT_TOUCH_ENABLE
+  if (!touch_enabled) {
+    return res; // data->state = LV_INDEV_STATE_REL;
+  }
+#endif
+  if (touchtype == RESISTIVE_TOUCH) {
         res = adcraw_read(drv, data);
     }else{
         res = gt911_read(drv, data);
@@ -85,17 +98,27 @@ bool touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #endif
 }
 
-//If display is capactive, timer will crash display
-void resistive_disable(){ 
-    if(touchtype == RESISTIVE_TOUCH){ 
-        if(SWTIMER)
-        xTimerStop(SWTIMER,0); 
+// If display is capactive, timer will crash display
+void touch_disable() {
+
+#if TEST_SUPPORT_TOUCH_ENABLE
+  if (touchtype == RESISTIVE_TOUCH) {
+    if (SWTIMER)
+      xTimerStop(SWTIMER, 0);
     } 
+  touch_enabled = false;
+  printf("Touch disabled\n");
+#endif
 } 
  
-void resistive_enable(){ 
-    if(touchtype == RESISTIVE_TOUCH){
-        if(SWTIMER) 
-        xTimerStart(SWTIMER,0); 
+void touch_enable() {
+#if TEST_SUPPORT_TOUCH_ENABLE
+  if (touchtype == RESISTIVE_TOUCH) {
+    if (SWTIMER)
+      xTimerStart(SWTIMER, 0);
     } 
+
+  touch_enabled = true;
+  printf("Touch enabled\n");
+#endif
 } 

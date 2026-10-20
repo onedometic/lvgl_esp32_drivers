@@ -50,6 +50,9 @@ SOFTWARE.
 	#endif
 #endif
 
+#ifndef I2C_TAG
+#define I2C_TAG "i2c_manager"
+#endif
 
 static const char* TAG = I2C_TAG;
 
@@ -57,6 +60,16 @@ static SemaphoreHandle_t I2C_FN(_local_mutex)[2] = { NULL, NULL };
 static SemaphoreHandle_t* I2C_FN(_mutex) = &I2C_FN(_local_mutex)[0];
 
 static const uint8_t ACK_CHECK_EN = 1;
+
+#ifndef I2C_NUM_0
+#define I2C_NUM_0 0
+#endif
+
+#ifndef portTICK_RATE_MS
+	#define portTICK_RATE_MS portTICK_PERIOD_MS
+#endif
+
+
 
 #if defined (I2C_NUM_0) && defined (CONFIG_I2C_MANAGER_0_ENABLED)
 	#define I2C_ZERO 					I2C_NUM_0

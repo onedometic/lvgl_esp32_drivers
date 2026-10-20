@@ -139,12 +139,20 @@ void gt911_init(uint8_t dev_addr) {
         //  gpio_set_level(CTP_PIN_RESET, 0);  //Force high to reset CTP
 
         ESP_LOGI(TAG, "Checking for GT911 Touch Controller");
-        
-        if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1) != ESP_OK)) {
-            // ESP_LOGE(TAG, "Error reading from device: %s",
-            //             esp_err_to_name(ret));    // Only show error the first time
-            ESP_LOGI(TAG, "Error reading from device: %s",esp_err_to_name(ret));
-            // gt911_reset_CTP();
+        uint8_t retries = 0;
+        while (retries < 3) {
+            if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1) != ESP_OK)) {
+                // ESP_LOGE(TAG, "Error reading from device: %s",
+                //             esp_err_to_name(ret));    // Only show error the first time
+                ESP_LOGI(TAG, "Error reading from device: %s",esp_err_to_name(ret));
+                // gt911_reset_CTP();
+                retries++;
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+            } else {
+                break;
+            }
+        }
+        if (retries == 3) {
             return;
         }
 

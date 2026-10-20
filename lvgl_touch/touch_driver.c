@@ -49,6 +49,11 @@ void touch_driver_init(void)
 // #endif
 }
 
+#define TEST_SUPPORT_TOUCH_ENABLE (1)
+#if TEST_SUPPORT_TOUCH_ENABLE
+static bool touch_enabled = true;
+#endif
+
 #if LVGL_VERSION_MAJOR >= 8
 void touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #else
@@ -56,6 +61,13 @@ bool touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #endif
 {
     bool res = false;
+
+    #if TEST_SUPPORT_TOUCH_ENABLE
+  if (!touch_enabled) {
+    return res; // data->state = LV_INDEV_STATE_REL;
+  }
+#endif
+
     if(touchtype == RESISTIVE_TOUCH){
         res = adcraw_read(drv, data);
     }else{
@@ -85,17 +97,27 @@ bool touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 #endif
 }
 
-//If display is capactive, timer will crash display
-void resistive_disable(){ 
-    if(touchtype == RESISTIVE_TOUCH){ 
-        if(SWTIMER)
-        xTimerStop(SWTIMER,0); 
+// If display is capactive, timer will crash display
+void touch_disable() {
+
+#if TEST_SUPPORT_TOUCH_ENABLE
+  if (touchtype == RESISTIVE_TOUCH) {
+    if (SWTIMER)
+      xTimerStop(SWTIMER, 0);
     } 
+  touch_enabled = false;
+  printf("Touch disabled\n");
+#endif
 } 
  
-void resistive_enable(){ 
-    if(touchtype == RESISTIVE_TOUCH){
-        if(SWTIMER) 
-        xTimerStart(SWTIMER,0); 
+void touch_enable() {
+#if TEST_SUPPORT_TOUCH_ENABLE
+  if (touchtype == RESISTIVE_TOUCH) {
+    if (SWTIMER)
+      xTimerStart(SWTIMER, 0);
     } 
+
+  touch_enabled = true;
+  printf("Touch enabled\n");
+#endif
 } 

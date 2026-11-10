@@ -69,7 +69,8 @@ bool touch_driver_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
     return res; // data->state = LV_INDEV_STATE_REL;
   }
 #endif
-  if (touchtype == RESISTIVE_TOUCH) {
+
+    if(touchtype == RESISTIVE_TOUCH){
         res = adcraw_read(drv, data);
     }else{
         res = gt911_read(drv, data);

@@ -155,6 +155,7 @@ void gt911_init(uint8_t dev_addr) {
         if (retries == 3) {
             return;
         }
+    }
 
         // Read 4 bytes for Product ID in ASCII
         for (int i = 0; i < GT911_PRODUCT_ID_LEN; i++) {
@@ -261,6 +262,10 @@ bool gt911_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
     data->point.x = last_x;
     data->point.y = last_y;
     data->state = LV_INDEV_STATE_PR;
-    ESP_LOGI(TAG, "X=%u Y=%u", data->point.x, data->point.y);
+//   adcX = last_x;
+//   adcY = last_y;
+  void increase_touch_count();
+  increase_touch_count();
+  /// ESP_LOGI(TAG, "X=%u Y=%u", data->point.x, data->point.y);
     return false;
 }

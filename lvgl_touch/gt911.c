@@ -141,7 +141,7 @@ void gt911_init(uint8_t dev_addr) {
         ESP_LOGI(TAG, "Checking for GT911 Touch Controller");
         uint8_t retries = 0;
         while (retries < 3) {
-            if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1) != ESP_OK)) {
+            if ((ret = gt911_i2c_read(dev_addr, GT911_PRODUCT_ID1, &data_buf, 1)) != ESP_OK) {
                 // ESP_LOGE(TAG, "Error reading from device: %s",
                 //             esp_err_to_name(ret));    // Only show error the first time
                 ESP_LOGI(TAG, "Error reading from device: %s",esp_err_to_name(ret));
@@ -155,7 +155,6 @@ void gt911_init(uint8_t dev_addr) {
         if (retries == 3) {
             return;
         }
-    //}
 
         // Read 4 bytes for Product ID in ASCII
         for (int i = 0; i < GT911_PRODUCT_ID_LEN; i++) {
